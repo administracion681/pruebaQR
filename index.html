@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validador de Jugadores - Club</title>
+    <!-- CORREGIDO: la URL estaba cortada ("https://unpkg.com") y la librería no se cargaba nunca -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
+        .container { max-width: 500px; width: 100%; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; box-sizing: border-box; }
+        .club-logo { max-width: 100px; height: auto; margin: 0 auto 15px auto; display: block; }
+        h1 { color: #1e3a8a; font-size: 24px; margin-bottom: 5px; }
+        p { color: #64748b; font-size: 14px; margin-top: 0; margin-bottom: 20px; }
+        .input-group { margin-top: 15px; text-align: left; }
+        label { display: block; font-weight: bold; color: #334155; margin-bottom: 6px; font-size: 14px; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 16px; box-sizing: border-box; text-transform: uppercase; }
+        .btn { width: 100%; padding: 14px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 10px; border: none; }
+        .btn-primary { background-color: #1e3a8a; color: white; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-success { background-color: #16a34a; color: white; margin-top: 15px; }
+        .btn-success:hover { background-color: #15803d; }
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #e2e8f0; background: #000; min-height: 250px; margin-top: 15px; display: none; }
+        .divider { margin: 20px 0; border-top: 1px solid #e2e8f0; position: relative; }
+        .divider span { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: white; padding: 0 10px; color: #94a3b8; font-size: 12px; }
+        #result-box { margin-top: 20px; padding: 20px; border-radius: 8px; font-size: 18px; font-weight: bold; display: none; }
+        .loading { background-color: #fef3c7; color: #d97706; border: 2px solid #f59e0b; }
+        .success { background-color: #dcfce7; color: #15803d; border: 2px solid #22c55e; }
+        .error { background-color: #fee2e2; color: #b91c1c; border: 2px solid #ef4444; }
+        .player-name { font-size: 22px; display: block; margin-top: 8px; font-weight: 800; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgkWSIS6klq6B6AyVvIWTd0Va8ZJ5MtTCBr-Bb0WUfg9IiCVDq1b-xYGW1XZZ_myaAbBt6CmtTrNEEYFdnZkn_AH-0s4vvX0v93VVsWa9A-Mfl-aJkKyYDX9x5_a5x7SX5volu836Uwg5SCxpKZEHUtHktqPa5EkPUptxLrj2z9qCdwHXtWOPsQjpD7CEas/s2406/LOGO%20RETRO_BLANCO.png" alt="Logo Club" class="club-logo">
+
+    <h1>Jugadores/as del CBASA</h1>
+    <p>Introduce el código a mano o activa el escáner automático</p>
+
+    <div class="input-group">
+        <label for="codigo-manual">Código del Jugador</label>
+        <input type="text" id="codigo-manual" placeholder="Ej: US0101" autocomplete="off">
+    </div>
+    <button class="btn btn-primary" onclick="validarManual()">🔍 Verificar Código</button>
+
+    <div class="divider"><span>O BIEN</span></div>
+
+    <button id="btn-toggle-cam" class="btn btn-success" onclick="alternarEscaner()">📷 Abrir Escáner Automático</button>
+
+    <div id="reader"></div>
+
+    <div id="result-box"></div>
+</div>
+
+<script>
+const urlPowerAutomate =
+"https://defaultbf8cd90772454311a58549f10dc915.b2.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/21/workflows/0d7504fbadf6417badc394e657db7867/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=IvPmcJcV5hZUyVkQRNwRHYACXDWc3pyz0uoxi6QA4lw";
+
+const resultBox = document.getElementById('result-box');
+const readerDiv = document.getElementById('reader');
+const btnToggleCam = document.getElementById('btn-toggle-cam');
+let html5QrCode = null;
+let isProcessing = false;
+let isCamOpen = false;
+
+function validarManual() {
+    const inputTexto = document.getElementById('codigo-manual').value.trim();
+    if (!inputTexto) {
+        alert("Por favor, escribe un código antes de verificar.");
+        return;
+    }
+    consultarNube(inputTexto);
+}
+
+function alternarEscaner() {
+    if (isCamOpen) {
+        apagarCamara();
+    } else {
+        encenderCamaraReal();
+    }
+}
+
+function encenderCamaraReal() {
+    // 1) ¿Se cargó la librería?
+    if (typeof Html5Qrcode === "undefined") {
+        alert("No se pudo cargar el lector de QR. Comprueba tu conexión a internet y recarga la página.");
+        return;
+    }
+    // 2) La cámara solo funciona en HTTPS (o localhost), nunca abriendo el archivo directamente
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("La cámara solo funciona si la página se abre desde una dirección https:// (no desde un archivo guardado en el móvil) y con un navegador normal (Safari en iPhone, Chrome en Android), no desde el navegador interno de WhatsApp, Teams, Outlook, etc.");
+        return;
+    }
+
+    readerDiv.style.display = "block";
+    btnToggleCam.innerText = "⏳ Solicitando cámara...";
+    btnToggleCam.disabled = true;
+
+    html5QrCode = new Html5Qrcode("reader", {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        verbose: false
+    });
+
+    // CORREGIDO: el primer parámetro solo puede llevar UNA clave (facingMode).
+    // Antes llevaba también width/height y la librería lanzaba un error.
+    html5QrCode.start(
+        { facingMode: "environment" },
+        {
+            fps: 10,
+            qrbox: (w, h) => {
+                const lado = Math.floor(Math.min(w, h) * 0.7);
+                return { width: lado, height: lado };
+            }
+        },
+        (decodedText) => {
+            consultarNube(decodedText.trim());
+        },
+        () => { /* Silenciar escaneo continuo */ }
+    )
+    .then(() => {
+        isCamOpen = true;
+        btnToggleCam.disabled = false;
+        btnToggleCam.style.backgroundColor = "#dc2626";
+        btnToggleCam.innerText = "❌ Cerrar Escáner";
+    })
+    .catch(err => {
+        alert("No se pudo iniciar la cámara. Acepta el permiso de cámara del navegador (si lo denegaste antes, actívalo en los ajustes del sitio). Detalle: " + err);
+        finalizarEstadoCamara();
+    });
+}
+
+function apagarCamara() {
+    if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop()
+            .then(() => { try { html5QrCode.clear(); } catch (e) {} })
+            .catch(() => {})
+            .finally(finalizarEstadoCamara);
+    } else {
+        finalizarEstadoCamara();
+    }
+}
+
+function finalizarEstadoCamara() {
+    isCamOpen = false;
+    readerDiv.style.display = "none";
+    btnToggleCam.disabled = false;
+    btnToggleCam.style.backgroundColor = "#16a34a";
+    btnToggleCam.innerText = "📷 Abrir Escáner Automático";
+}
+
+function consultarNube(codigoText) {
+    if (isProcessing) return;
+    isProcessing = true;
+
+    resultBox.style.display = "block";
+    resultBox.className = "loading";
+    resultBox.textContent = "⏳ Consultando en la nube...";
+
+    if (html5QrCode && html5QrCode.isScanning) {
+        apagarCamara();
+    }
+
+    fetch(urlPowerAutomate, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigoQR: codigoText })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json();
+    })
+    .then(data => {
+        if (data.status === "OK") {
+            resultBox.className = "success";
+            resultBox.textContent = "✅ JUGADOR VALIDADO";
+            // textContent evita que un nombre con código HTML se ejecute en la página
+            const nombre = document.createElement("span");
+            nombre.className = "player-name";
+            nombre.textContent = data.nombre;
+            resultBox.appendChild(nombre);
+        } else {
+            resultBox.className = "error";
+            resultBox.textContent = "❌ ERROR: Jugador No Registrado";
+        }
+    })
+    .catch(() => {
+        resultBox.className = "error";
+        resultBox.textContent = "❌ ERROR: Sin respuesta de la base de datos";
+    })
+    .finally(() => {
+        setTimeout(() => {
+            resultBox.style.display = "none";
+            isProcessing = false;
+        }, 5000);
+    });
+}
+</script>
+</body>
+</html>
